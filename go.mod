@@ -1,4 +1,4 @@
-module github.com/Kotaro7750/EPGStation-file-deletor
+module github.com/Kotaro7750/EPGStation-file-deleter
 
 go 1.21.5
 

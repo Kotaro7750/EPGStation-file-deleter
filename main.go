@@ -17,6 +17,7 @@ var logger slog.Logger
 type Config struct {
 	EpgStationBaseURL string `env:"EPGSTATION_BASE_URL" envDefault:"http://localhost:8888"`
 	RetainDuration    string `env:"RETAIN_DURATION" envDefault:"336h"`
+	IsDryRun          bool   `env:"IS_DRY_RUN" envDefault:"false"`
 	LogLevel          string `env:"LOG_LEVEL" envDefault:"INFO"`
 }
 
@@ -156,6 +157,10 @@ func main() {
 		break
 	}
 
+	if config.IsDryRun {
+		logger.Info("Dry run mode is enabled. Delete operation is not executed")
+	}
+
 	retainDuration, err := time.ParseDuration(config.RetainDuration)
 	if err != nil {
 		logger.Error(err.Error())
@@ -179,11 +184,15 @@ func main() {
 	for _, record := range dst {
 		for _, videoFile := range record.VideoFiles {
 			if videoFile.Type == "ts" {
-				logger.Info(fmt.Sprintf("Delete videoFile id: %d, filename: %s", videoFile.Id, videoFile.FileName))
-				err := epgStationClient.DeleteVideoFile(videoFile.Id)
-				if err != nil {
-					logger.Error(err.Error())
-					continue
+				if config.IsDryRun {
+					logger.Info(fmt.Sprintf("(Dry Run) Delete videoFile id: %d, filename: %s", videoFile.Id, videoFile.FileName))
+				} else {
+					logger.Info(fmt.Sprintf("Delete videoFile id: %d, filename: %s", videoFile.Id, videoFile.FileName))
+					err := epgStationClient.DeleteVideoFile(videoFile.Id)
+					if err != nil {
+						logger.Error(err.Error())
+						continue
+					}
 				}
 			}
 		}

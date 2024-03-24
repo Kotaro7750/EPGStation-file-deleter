@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"github.com/caarlos0/env/v10"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
 )
 
+var logger slog.Logger
+
 type Config struct {
 	EpgStationBaseURL string `env:"EPGSTATION_BASE_URL" envDefault:"http://localhost:8888"`
 	RetainDuration    string `env:"RETAIN_DURATION" envDefault:"336h"`
+	LogLevel          string `env:"LOG_LEVEL" envDefault:"INFO"`
 }
 
 type EPGStationClient struct {
@@ -118,6 +122,7 @@ func extractTargetRecordItems(src []RecordedItem, policy DeletionPolicy, dst *[]
 		}
 
 		elapsed := time.Since(time.UnixMilli(record.StartAt))
+		logger.Debug(fmt.Sprintf("Check if record satisfy deletion policy id: %d, name: %s, protected: %t, hasTS: %t, hasEncoded: %t, elapsed: %s", record.Id, record.Name, record.IsProtected, hasTS, hasEncoded, elapsed.String()))
 
 		if !record.IsProtected && hasTS && hasEncoded && elapsed > policy.RetainDuration {
 			*dst = append(*dst, record)
@@ -126,24 +131,44 @@ func extractTargetRecordItems(src []RecordedItem, policy DeletionPolicy, dst *[]
 }
 
 func main() {
+	var logLevel = new(slog.LevelVar)
+	logLevel.Set(slog.LevelInfo)
+	logger = *slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+
+	logger.Info("Starting")
+
 	var config Config
 	err := env.Parse(&config)
 	if err != nil {
-		fmt.Print(err)
+		logger.Error(err.Error())
 		os.Exit(1)
+	}
+
+	switch config.LogLevel {
+	case "ERROR":
+		logLevel.Set(slog.LevelError)
+		break
+	case "WARN":
+		logLevel.Set(slog.LevelWarn)
+		break
+	case "DEBUG":
+		logLevel.Set(slog.LevelDebug)
+		break
 	}
 
 	retainDuration, err := time.ParseDuration(config.RetainDuration)
 	if err != nil {
-		fmt.Print(err)
+		logger.Error(err.Error())
 		os.Exit(1)
 	}
+
+	logger.Info(fmt.Sprintf("Retain duration is %s", config.RetainDuration))
 
 	epgStationClient := NewEPGStationClient(config.EpgStationBaseURL)
 
 	r, err := epgStationClient.GetRecorded()
 	if err != nil {
-		fmt.Print(err)
+		logger.Error(err.Error())
 		os.Exit(1)
 	}
 
@@ -154,13 +179,12 @@ func main() {
 	for _, record := range dst {
 		for _, videoFile := range record.VideoFiles {
 			if videoFile.Type == "ts" {
-				fmt.Printf("Delete videoFile id: %d, filename: %s\n", videoFile.Id, videoFile.FileName)
+				logger.Info(fmt.Sprintf("Delete videoFile id: %d, filename: %s", videoFile.Id, videoFile.FileName))
 				err := epgStationClient.DeleteVideoFile(videoFile.Id)
 				if err != nil {
-					fmt.Print(err)
+					logger.Error(err.Error())
 					continue
 				}
-				fmt.Printf("Success to delete\n")
 			}
 		}
 	}

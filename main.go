@@ -12,8 +12,8 @@ import (
 )
 
 type Config struct {
-	EpgStationBaseURL   string `env:"EPGSTATION_BASE_URL" envDefault:"http://localhost:8888"`
-	DeleteOlderThanHour int    `env:"DELETE_OLDER_THAN_HOUR" envDefault:"336"`
+	EpgStationBaseURL string `env:"EPGSTATION_BASE_URL" envDefault:"http://localhost:8888"`
+	RetainDuration    string `env:"RETAIN_DURATION" envDefault:"336h"`
 }
 
 type EPGStationClient struct {
@@ -25,12 +25,12 @@ func NewEPGStationClient(baseURL string) EPGStationClient {
 }
 
 type DeletionPolicy struct {
-	DeleteOlderThanHour int
+	RetainDuration time.Duration
 }
 
-func NewDeletionPolicy(deleteOlderThanHour int) DeletionPolicy {
+func NewDeletionPolicy(retainDuration time.Duration) DeletionPolicy {
 	// Default is 2 weeks
-	return DeletionPolicy{DeleteOlderThanHour: deleteOlderThanHour}
+	return DeletionPolicy{RetainDuration: retainDuration}
 }
 
 type Records struct {
@@ -119,7 +119,7 @@ func extractTargetRecordItems(src []RecordedItem, policy DeletionPolicy, dst *[]
 
 		elapsed := time.Since(time.UnixMilli(record.StartAt))
 
-		if !record.IsProtected && hasTS && hasEncoded && elapsed.Hours() > float64(policy.DeleteOlderThanHour) {
+		if !record.IsProtected && hasTS && hasEncoded && elapsed > policy.RetainDuration {
 			*dst = append(*dst, record)
 		}
 	}
@@ -133,6 +133,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	retainDuration, err := time.ParseDuration(config.RetainDuration)
+	if err != nil {
+		fmt.Print(err)
+		os.Exit(1)
+	}
+
 	epgStationClient := NewEPGStationClient(config.EpgStationBaseURL)
 
 	r, err := epgStationClient.GetRecorded()
@@ -141,7 +147,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	policy := NewDeletionPolicy(config.DeleteOlderThanHour)
+	policy := NewDeletionPolicy(retainDuration)
 	dst := make([]RecordedItem, 0)
 	extractTargetRecordItems(r.RecordItems, policy, &dst)
 
